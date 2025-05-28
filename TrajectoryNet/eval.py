@@ -27,6 +27,21 @@ from TrajectoryNet.train_misc import (
     build_model_tabular,
 )
 
+import argparse
+
+# ================== NEW PARSER ARGUMENTS ==================
+# Create a new parser that inherits from the base parser
+eval_parser = argparse.ArgumentParser(parents=[parser], add_help=True)
+eval_parser.add_argument('--eval_mode', type=str, default='kantorovich_v2',
+                    choices=['generate_samples', 'calculate_path_length', 
+                             'evaluate_mse', 'evaluate_kantorovich_v2',
+                             'evaluate_kantorovich', 'evaluate'],
+                    help='Evaluation mode to run')
+eval_parser.add_argument('--timepoint', type=float, default=None,
+                    help='Specific timepoint for evaluation')
+eval_parser.add_argument('--n_samples', type=int, default=10000,
+                    help='Number of samples for evaluation')
+# ===========================================================
 
 def makedirs(dirname):
     if not os.path.exists(dirname):
@@ -128,27 +143,21 @@ def save_trajectory(
 
                 plt.clf()
 
-                # plot target potential function
+                # UNCOMMENTED: Visualize target distribution
                 ax = plt.subplot(1, 1, 1, aspect="equal")
-
-                """
                 ax.hist2d(data_samples[:, 0], data_samples[:, 1], range=[[-4, 4], [-4, 4]], bins=200)
                 ax.invert_yaxis()
                 ax.get_xaxis().set_ticks([])
                 ax.get_yaxis().set_ticks([])
                 ax.set_title("Target", fontsize=32)
 
-                """
-                # plot the density
-                # ax = plt.subplot(2, 2, 2, aspect="equal")
-
+                # UNCOMMENTED: Visualize samples
+                ax = plt.subplot(2, 2, 2, aspect="equal")
                 z, logqz = grid_z_traj[t], grid_logpz_traj[t]
-
                 xx = z[:, 0].reshape(npts, npts)
                 yy = z[:, 1].reshape(npts, npts)
                 qz = np.exp(logqz).reshape(npts, npts)
                 rgb = plt.cm.Spectral(t / z_traj.shape[0])
-                print(t, rgb)
                 background_color = "white"
                 cvals = [0, np.percentile(qz, 0.1)]
                 colors = [
@@ -158,28 +167,22 @@ def save_trajectory(
                 norm = plt.Normalize(min(cvals), max(cvals))
                 tuples = list(zip(map(norm, cvals), colors))
                 cmap = matplotlib.colors.LinearSegmentedColormap.from_list("", tuples)
-                from matplotlib.colors import LogNorm
-
                 plt.pcolormesh(
                     xx,
                     yy,
                     qz,
-                    # norm=LogNorm(vmin=qz.min(), vmax=qz.max()),
                     cmap=cmap,
                 )
                 ax.set_xlim(-4, 4)
                 ax.set_ylim(-4, 4)
-                cmap = matplotlib.cm.get_cmap(None)
                 ax.set_facecolor(background_color)
                 ax.invert_yaxis()
                 ax.get_xaxis().set_ticks([])
                 ax.get_yaxis().set_ticks([])
                 ax.set_title("Density", fontsize=32)
 
-                """
-                # plot the samples
+                # UNCOMMENTED: Visualize samples
                 ax = plt.subplot(2, 2, 3, aspect="equal")
-
                 zk = z_traj[t]
                 ax.hist2d(zk[:, 0], zk[:, 1], range=[[-4, 4], [-4, 4]], bins=200)
                 ax.invert_yaxis()
@@ -187,9 +190,8 @@ def save_trajectory(
                 ax.get_yaxis().set_ticks([])
                 ax.set_title("Samples", fontsize=32)
 
-                # plot vector field
+                # UNCOMMENTED: Visualize vector field
                 ax = plt.subplot(2, 2, 4, aspect="equal")
-
                 K = 13j
                 y, x = np.mgrid[-4:4:K, -4:4:K]
                 K = int(K.imag)
@@ -198,19 +200,15 @@ def save_trajectory(
                 dydt = cnf.odefunc(full_times[t], (zs, logps))[0]
                 dydt = -dydt.cpu().detach().numpy()
                 dydt = dydt.reshape(K, K, 2)
-
                 logmag = 2 * np.log(np.hypot(dydt[:, :, 0], dydt[:, :, 1]))
                 ax.quiver(
                     x, y, dydt[:, :, 0], -dydt[:, :, 1],
-                    # x, y, dydt[:, :, 0], dydt[:, :, 1],
                     np.exp(logmag), cmap="coolwarm", scale=20., width=0.015, pivot="mid"
                 )
                 ax.set_xlim(-4, 4)
                 ax.set_ylim(4, -4)
-                #ax.set_ylim(-4, 4)
                 ax.axis("off")
                 ax.set_title("Vector Field", fontsize=32)
-                """
 
                 makedirs(savedir)
                 plt.savefig(os.path.join(savedir, f"viz-{t:05d}.jpg"))
@@ -229,12 +227,10 @@ def get_trajectory_samples(device, model, data, n=2000):
 
 
 def plot_output(device, args, model, data):
-    # logger.info('Plotting trajectory to {}'.format(save_traj_dir))
+    # UNCOMMENTED: Visualization functions
     data_samples = data.get_data()[data.sample_index(2000, 0)]
     start_points = data.base_sample()(1000, 2)
-    # start_points = data.get_data()[idx]
-    # start_points = torch.from_numpy(start_points).type(torch.float32)
-    """
+    
     save_vectors(
         data.base_density(),
         model,
@@ -261,8 +257,7 @@ def plot_output(device, args, model, data):
         memory=1.0,
         limit=2.5,
     )
-    """
-
+    
     density_dir = os.path.join(args.save, "density2")
     save_trajectory_density(
         data.base_density(),
@@ -290,13 +285,10 @@ def integrate_backwards(
         deltas = []
         int_tps = np.linspace(args.int_tps[0], args.int_tps[-1], ntimes)
         for i, itp in enumerate(int_tps[::-1][:-1]):
-            # tp counts down from last
             timescale = int_tps[1] - int_tps[0]
             integration_times = torch.tensor([itp - timescale, itp])
-            # integration_times = torch.tensor([np.linspace(itp - args.time_scale, itp, ntimes)])
             integration_times = integration_times.type(torch.float32).to(device)
 
-            # transform to previous timepoint
             z, delta_logp = cnf(zs[-1], zero, integration_times=integration_times)
             zs.append(z)
             deltas.append(delta_logp)
@@ -315,9 +307,6 @@ def main(args):
     data = dataset.SCData.factory(args.dataset, args)
 
     args.timepoints = data.get_unique_times()
-
-    # Use maximum timepoint to establish integration_times
-    # as some timepoints may be left out for validation etc.
     args.int_tps = (np.arange(max(args.timepoints) + 1) + 1.0) * args.time_scale
 
     regularization_fns, regularization_coeffs = create_regularization_fns(args)
@@ -326,7 +315,6 @@ def main(args):
     )
     if args.use_growth:
         growth_model_path = data.get_growth_net_path()
-        # growth_model_path = "/home/atong/TrajectoryNet/data/externel/growth_model_v2.ckpt"
         growth_model = torch.load(growth_model_path, map_location=device)
     if args.spectral_norm:
         add_spectral_norm(model)
@@ -335,53 +323,64 @@ def main(args):
     state_dict = torch.load(args.save + "/checkpt.pth", map_location=device)
     model.load_state_dict(state_dict["state_dict"])
 
-    # plot_output(device, args, model, data)
-    # exit()
-    # get_trajectory_samples(device, model, data)
-
     args.data = data
     args.timepoints = args.data.get_unique_times()
     args.int_tps = (np.arange(max(args.timepoints) + 1) + 1.0) * args.time_scale
 
-    print("integrating backwards")
-    # end_time_data = data.data_dict[args.embedding_name]
-    end_time_data = data.get_data()[
-        args.data.get_times() == np.max(args.data.get_times())
-    ]
-    # np.random.permutation(end_time_data)
-    # rand_idx = np.random.randint(end_time_data.shape[0], size=5000)
-    # end_time_data = end_time_data[rand_idx,:]
-    integrate_backwards(end_time_data, model, args.save, ntimes=100, device=device)
-    exit()
-    losses_list = []
-    # for factor in np.linspace(0.05, 0.95, 19):
-    # for factor in np.linspace(0.91, 0.99, 9):
-    if args.dataset == "CHAFFER":  # Do timepoint adjustment
-        print("adjusting_timepoints")
-        lt = args.leaveout_timepoint
-        if lt == 1:
-            factor = 0.6799872494335812
-            factor = 0.95
-        elif lt == 2:
-            factor = 0.2905983814032348
-            factor = 0.01
-        else:
-            raise RuntimeError("Unknown timepoint %d" % args.leaveout_timepoint)
-        args.int_tps[lt] = (1 - factor) * args.int_tps[lt - 1] + factor * args.int_tps[
-            lt + 1
-        ]
-    losses = eval_utils.evaluate_kantorovich_v2(device, args, model)
-    losses_list.append(losses)
-    print(np.array(losses_list))
-    np.save(os.path.join(args.save, "emd_list"), np.array(losses_list))
-    # zs = np.load(os.path.join(args.save, 'backward_trajectories'))
-    # losses = eval_utils.evaluate_mse(device, args, model)
-    # losses = eval_utils.evaluate_kantorovich(device, args, model)
-    # print(losses)
-    # eval_utils.generate_samples(device, args, model, growth_model, timepoint=args.timepoints[-1])
-    # eval_utils.calculate_path_length(device, args, model, data, args.int_tps[-1])
+    # ================== NEW EVALUATION DISPATCH ==================
+    # Remove the existing integration and exit calls
+    # Add evaluation mode dispatch
+    if args.eval_mode == 'generate_samples':
+        timepoint = args.timepoint or args.timepoints[-1]
+        eval_utils.generate_samples(
+            device, args, model, growth_model, 
+            n=args.n_samples, timepoint=timepoint
+        )
+        
+    elif args.eval_mode == 'calculate_path_length':
+        end_time = args.int_tps[-1]
+        eval_utils.calculate_path_length(
+            device, args, model, data, end_time, 
+            n_pts=args.n_samples
+        )
+        
+    elif args.eval_mode == 'evaluate_mse':
+        mses = eval_utils.evaluate_mse(
+            device, args, model, growth_model
+        )
+        print(f"MSE Results: {mses}")
+        np.save(os.path.join(args.save, "mse_results.npy"), mses)
+        
+    elif args.eval_mode == 'evaluate_kantorovich':
+        emds = eval_utils.evaluate_kantorovich(
+            device, args, model, growth_model, 
+            n=args.n_samples
+        )
+        print(f"Kantorovich EMDs: {emds}")
+        np.save(os.path.join(args.save, "kantorovich_emds.npy"), emds)
+        
+    elif args.eval_mode == 'evaluate_kantorovich_v2':
+        emds = eval_utils.evaluate_kantorovich_v2(
+            device, args, model, growth_model
+        )
+        print(f"Kantorovich v2 EMDs: {emds}")
+        np.save(os.path.join(args.save, "kantorovich_v2_emds.npy"), emds)
+        
+    elif args.eval_mode == 'evaluate':
+        nll = eval_utils.evaluate(
+            device, args, model, growth_model
+        )
+        print(f"Negative Log-Likelihood: {nll}")
+        np.save(os.path.join(args.save, "nll_results.npy"), nll)
+    else:
+        print(f"Unknown evaluation mode: {args.eval_mode}")
+    
+    # Optional: Run visualization for 2D data
+    if args.data.get_shape()[0] == 2:
+        plot_output(device, args, model, data)
+    # =============================================================
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()
+    args = eval_parser.parse_args()  # Use the new parser
     main(args)
