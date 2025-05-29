@@ -117,3 +117,16 @@ parser.add_argument(
 )
 parser.add_argument("--whiten", action="store_true", help="Whiten data before running TrajectoryNet")
 parser.add_argument("--save_movie", action="store_false", help="Construct trajectory movie, requires ffmpeg to be installed")
+
+# Evaluation arguments
+parser.add_argument('--eval-nll', action='store_true', help='Evaluate negative log-likelihood')
+parser.add_argument('--eval-kantorovich', action='store_true', help='Evaluate Kantorovich distances')
+parser.add_argument('--eval-kantorovich-v2', action='store_true', help='Evaluate Kantorovich V2 distances')
+parser.add_argument('--eval-mse', action='store_true', help='Evaluate MSE on paths')
+parser.add_argument('--eval-path-length', action='store_true', help='Calculate path lengths')
+parser.add_argument('--generate-eval-samples', action='store_true', help='Generate samples for evaluation')
+
+# Visualization arguments
+parser.add_argument('--plot-vector-fields', action='store_true', help='Plot vector fields with samples')
+parser.add_argument('--plot-trajectories', action='store_true', help='Plot trajectory outputs')
+parser.add_argument('--plot-loss', action='store_true', help='Plot loss curves')
