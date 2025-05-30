@@ -7,6 +7,7 @@ from scipy.spatial.distance import cdist
 import ot as pot
 import csv
 
+
 # Import visualization utilities
 from TrajectoryNet.lib.viz_scrna import (
     save_vectors,
@@ -474,7 +475,7 @@ def plot_vector_fields_with_samples(device, args, model, logger, save_dir):
     
     logger.info("Plotting vector fields with integrated samples...")
     n_samples = 500
-    utils.makedirs(os.path.join(save_dir, "vector_fields"))
+    os.makedirs(os.path.join(save_dir, "vector_fields"), exist_ok=True)
     
     # Create base samples
     base_samples = args.data.base_sample()(n_samples, *args.data.get_shape())
@@ -557,13 +558,14 @@ def plot_vector_fields_with_samples(device, args, model, logger, save_dir):
             
             logger.info(f"Saved vector field plot for t={tp}")
 
-def plot_output(device, args, model, save_dir):
+def plot_output(device, args, model, logger, save_dir):
     """Plots trajectories and densities for 2D data"""
     if args.data.get_shape()[0] != 2:
         return
         
     save_traj_dir = os.path.join(save_dir, "trajectory")
-    utils.makedirs(save_traj_dir)
+    os.makedirs(save_traj_dir, exist_ok=True)
+    
     
     logger.info('Plotting trajectory to {}'.format(save_traj_dir))
     data_samples = args.data.get_data()[args.data.sample_index(2000, 0)]
