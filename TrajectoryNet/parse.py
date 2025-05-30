@@ -123,6 +123,7 @@ parser.add_argument('--eval-nll', action='store_true', help='Evaluate negative l
 parser.add_argument('--eval-kantorovich', action='store_true', help='Evaluate Kantorovich distances')
 parser.add_argument('--eval-kantorovich-v2', action='store_true', help='Evaluate Kantorovich V2 distances')
 parser.add_argument('--eval-mse', action='store_true', help='Evaluate MSE on paths')
+parser.add_argument('--eval_mse_timepoint', action='store_true', help='Evaluate MSE at leaveout timepoint')
 parser.add_argument('--eval-path-length', action='store_true', help='Calculate path lengths')
 parser.add_argument('--generate-eval-samples', action='store_true', help='Generate samples for evaluation')
 

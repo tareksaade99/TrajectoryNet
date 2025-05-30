@@ -28,6 +28,7 @@ from TrajectoryNet.eval_utils import (
     generate_samples,
     calculate_path_length,
     evaluate_mse,
+    evaluate_mse_at_timepoints,
     evaluate_kantorovich_v2,
     evaluate_kantorovich,
     evaluate,
@@ -438,6 +439,69 @@ def run_evaluation(device, args, model, growth_model, logger):
         except Exception as e:
             logger.error(f"MSE evaluation failed: {e}")
     
+    if getattr(args, 'eval_mse_timepoint', False):
+        if args.leaveout_timepoint < 0:
+            logger.warning(
+                f"Skipping MSE at timepoint: 'leaveout_timepoint' ({args.leaveout_timepoint}) is invalid."
+            )
+        # Check for new dependencies required by the modified function
+        elif not (hasattr(args, 'dataset') and \
+                  hasattr(args, 'int_tps')): # args.int_tps is used by the function and for logging
+            logger.error(
+                "Cannot compute MSE at timepoint: 'dataset', "
+                "or 'int_tps' missing in args. These are required for the selective loading method."
+            )
+        else:
+            # Ensure leaveout_timepoint is a valid index for args.int_tps before using it for logging
+            actual_time_str = "N/A (index out of bounds)"
+            is_valid_index_for_logging = 0 <= args.leaveout_timepoint < len(args.int_tps)
+            if is_valid_index_for_logging:
+                actual_time_str = f"{args.int_tps[args.leaveout_timepoint]:.2f}"
+
+            logger.info(
+                f"Computing MSE at target timepoint index {args.leaveout_timepoint} "
+                f"(corresponds to time: {actual_time_str}) using selective data loading..."
+            )
+            try:
+                # Call the (modified) evaluate_mse_at_timepoints function
+                # It's assumed that the function definition for evaluate_mse_at_timepoints
+                # has been updated to the new one that performs selective loading.
+                mse_result_dict = evaluate_mse_at_timepoints( # Or evaluate_mse_at_timepoints_modified if you kept a distinct name
+                    device=device,
+                    args=args,
+                    model=model,
+                    target_timepoints=[args.leaveout_timepoint], # Pass as a list of indices
+                    growth_model=growth_model
+                )
+                eval_results['mse_timepoint'] = mse_result_dict
+
+                if args.leaveout_timepoint in mse_result_dict:
+                    logger.info(
+                        f"MSE at timepoint index {args.leaveout_timepoint} "
+                        f"(time: {actual_time_str}): " # Use pre-calculated actual_time_str
+                        f"{mse_result_dict[args.leaveout_timepoint]:.6f}"
+                    )
+                else:
+                    # This should ideally not happen if target_timepoints was not empty
+                    # and the function executed correctly.
+                    logger.error(
+                        f"Internal error: MSE for timepoint index {args.leaveout_timepoint} "
+                        f"not found in results dictionary. Result: {mse_result_dict}"
+                    )
+            
+            except FileNotFoundError as e:
+                logger.error(f"MSE timepoint evaluation failed: Data file not found. {e}")
+            except ValueError as e: 
+                logger.error(f"MSE timepoint evaluation failed: Data loading or value error. {e}")
+            except AttributeError as e: 
+                logger.error(f"MSE timepoint evaluation failed: Missing or incorrect attribute in args. {e}")
+            except IndexError as e: # Catch potential IndexError if leaveout_timepoint is bad for args.int_tps
+                logger.error(f"MSE timepoint evaluation failed: 'leaveout_timepoint' ({args.leaveout_timepoint}) "
+                             f"is likely an invalid index for 'args.int_tps' (length {len(args.int_tps)}). Error: {e}")
+            except Exception as e:
+                logger.error(f"MSE timepoint evaluation failed with an unexpected error: {e}", exc_info=True)
+    
+    
     if getattr(args, 'eval_path_length', False):
         logger.info("Computing path lengths...")
         try:
@@ -585,6 +649,7 @@ def main(args):
                 getattr(args, 'eval_kantorovich', False),
                 getattr(args, 'eval_kantorovich_v2', False),
                 getattr(args, 'eval_mse', False),
+                getattr(args, 'evaluate_mse_at_timepoints', False),
                 getattr(args, 'eval_path_length', False),
                 getattr(args, 'generate_eval_samples', False)
             ])

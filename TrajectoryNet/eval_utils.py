@@ -24,17 +24,21 @@ matplotlib.use('Agg')
 # ======================== Core Evaluation Metrics ========================
 
 def generate_samples(device, args, model, growth_model, n=10000, timepoint=None):
-    """generates samples using model and base density
-
-    This is useful for measuring the wasserstein distance between the
-    predicted distribution and the true distribution for evaluation
-    purposes against other types of models. We should use
-    negative log likelihood if possible as it is deterministic and
-    more discriminative for this model type.
-
-    TODO: Is this biased???
     """
+    Generate samples from a trained neural ODE model and evaluate quality.
+    Computes all available EMD measures for comprehensive evaluation.
+    
+    Args:
+        device: torch device
+        args: arguments containing data and model configuration
+        model: trained neural ODE model
+        growth_model: growth model (unused in current implementation)
+        n: number of samples to generate
+        timepoint: specific timepoint to evaluate
+    """
+    
     z_samples = args.data.base_sample()(n, *args.data.get_shape()).to(device)
+    
     # Forward pass through the model / growth model
     with torch.no_grad():
         int_list = [
@@ -49,33 +53,76 @@ def generate_samples(device, args, model, growth_model, n=10000, timepoint=None)
         z = z.cpu().numpy()
         np.save(os.path.join(args.save, "samples_%0.2f.npy" % timepoint), z)
         logpz = logpz.cpu().numpy()
-        plt.scatter(z[:, 0], z[:, 1], s=0.1, alpha=0.5)
+        
+        # Create visualization
+        plt.scatter(z[:, 0], z[:, 1], s=0.1, alpha=0.5, label='Generated samples')
         original_data = args.data.get_data()[args.data.get_times() == timepoint]
         idx = np.random.randint(original_data.shape[0], size=n)
         samples = original_data[idx, :]
-        plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5)
+        plt.scatter(samples[:, 0], samples[:, 1], alpha=0.5, label='Original data')
+        plt.legend()
         plt.savefig(os.path.join(args.save, "samples%d.png" % timepoint))
         plt.close()
 
+        # Calculate probability weights for weighted EMD
         pz = np.exp(logpz)
         pz = pz / np.sum(pz)
-        print(pz)
+        print(f"Sample probability statistics - Min: {pz.min():.6f}, Max: {pz.max():.6f}, Mean: {pz.mean():.6f}")
 
-        print(
-            earth_mover_distance(
-                original_data, samples + np.random.randn(*samples.shape) * 0.1
-            )
-        )
+        print("\n" + "="*60)
+        print(f"EARTH MOVER DISTANCE EVALUATION (timepoint {timepoint})")
+        print("="*60)
 
-        print(earth_mover_distance(z, original_data))
-        print(earth_mover_distance(z, samples))
-        # print(earth_mover_distance(z, original_data, weights1=pz.flatten()))
-        # print(
-        #    earth_mover_distance(
-        #        args.data.get_data()[args.data.get_times() == (timepoint - 1)],
-        #        original_data,
-        #    )
-        # )
+        # 1. Noisy baseline EMD
+        noisy_samples = samples + np.random.randn(*samples.shape) * 0.1
+        emd_noisy = earth_mover_distance(original_data, noisy_samples)
+        print(f"1. NOISY BASELINE EMD: {emd_noisy:.6f}")
+        print("   → Distance between original data and real samples + Gaussian noise")
+        print("   → Shows expected EMD for 'reasonable' but imperfect samples")
+        print()
+
+        # 2. Standard unweighted EMD (generated vs original)
+        emd_unweighted = earth_mover_distance(z, original_data)
+        print(f"2. UNWEIGHTED EMD (Generated vs Original): {emd_unweighted:.6f}")
+        print("   → Standard distance between model-generated samples and real data")
+        print("   → Lower is better - measures how realistic the generated samples are")
+        print()
+
+        # 3. Weighted EMD (using model probabilities)
+        emd_weighted = earth_mover_distance(z, original_data, weights1=pz.flatten())
+        print(f"3. WEIGHTED EMD (Generated vs Original): {emd_weighted:.6f}")
+        print("   → Uses model's probability estimates as sample weights")
+        print("   → Emphasizes samples the model considers more likely")
+        print("   → More sophisticated measure of model quality")
+        print()
+
+        # 4. Generated vs sampled real data
+        emd_gen_vs_samples = earth_mover_distance(z, samples)
+        print(f"4. GENERATED vs REAL SAMPLES EMD: {emd_gen_vs_samples:.6f}")
+        print("   → Distance between generated samples and randomly selected real samples")
+        print("   → Direct comparison of model output vs ground truth")
+        print()
+
+        # 5. Temporal EMD (between consecutive timepoints)
+        if timepoint > 0:
+            prev_data = args.data.get_data()[args.data.get_times() == (timepoint - 1)]
+            emd_temporal = earth_mover_distance(prev_data, original_data)
+            print(f"5. TEMPORAL EMD (t-1 vs t): {emd_temporal:.6f}")
+            print(f"   → Natural change in data between timepoint {timepoint-1} and {timepoint}")
+            print("   → Baseline for expected temporal variation in the dataset")
+            print()
+        else:
+            print("5. TEMPORAL EMD: N/A (timepoint = 0, no previous timepoint available)")
+            print()
+
+        print("="*60)
+        print("INTERPRETATION GUIDE:")
+        print("• Lower EMD values indicate better similarity between distributions")
+        print("• Compare Generated vs Original EMD to Noisy Baseline EMD")
+        print("• Weighted EMD accounts for model confidence and may be more reliable")
+        print("• Temporal EMD shows natural data variation over time")
+        print("="*60)
+
 
     if args.use_growth and growth_model is not None:
         raise NotImplementedError(
@@ -152,6 +199,235 @@ def evaluate_mse(device, args, model, growth_model=None):
         np.save(os.path.join(args.save, "mses.npy"), mses)
         return mses
 
+# Helper function to load real data for selected timepoint indices from an NPZ file
+def _load_real_data_for_selected_indices(dataset,
+                                         data_file_indices_to_load,
+                                         num_samples_to_use_per_timepoint,
+                                         phate_key='phate',
+                                         labels_key='sample_labels'):
+    """
+    Loads data from an NPZ file for specified timepoint indices.
+    These indices refer to the sorted unique timepoint labels found in the data file.
+
+    Args:
+        dataset (str): Path to the .npz data file.
+        data_file_indices_to_load (list or set): A collection of 0-based indices
+                                                corresponding to the sorted unique
+                                                timepoint labels in the data file.
+                                                E.g., if file labels are [t_a, t_b, t_c] (sorted),
+                                                index 0 is for t_a, index 1 for t_b, etc.
+        num_samples_to_use_per_timepoint (int): Number of samples to retrieve for each timepoint.
+        phate_key (str): Key for the data array in the NPZ file.
+        labels_key (str): Key for the sample labels array in the NPZ file.
+
+    Returns:
+        dict: {data_file_index: data_array_for_that_index}
+              Each data_array will have shape (num_samples_to_use_per_timepoint, n_features).
+
+    Raises:
+        ValueError: If data is insufficient or indices are out of range.
+        FileNotFoundError: If dataset does not exist.
+    """
+    if not os.path.exists(dataset):
+        raise FileNotFoundError(f"Data file not found: {dataset}")
+
+    try:
+        raw_data_content = np.load(dataset)
+    except Exception as e:
+        raise IOError(f"Could not read NPZ file at {dataset}: {e}")
+
+
+    if phate_key not in raw_data_content:
+        raise ValueError(f"Data key '{phate_key}' not found in NPZ file: {dataset}")
+    if labels_key not in raw_data_content:
+        raise ValueError(f"Labels key '{labels_key}' not found in NPZ file: {dataset}")
+
+    all_phate_data = raw_data_content[phate_key]
+    all_sample_labels = raw_data_content[labels_key]
+
+    unique_sorted_labels_in_file = sorted(list(np.unique(all_sample_labels)))
+
+    max_data_idx_available = len(unique_sorted_labels_in_file) - 1
+    for requested_idx in data_file_indices_to_load:
+        if not (0 <= requested_idx <= max_data_idx_available):
+            raise ValueError(
+                f"Requested data file index {requested_idx} is out of range. "
+                f"Data has {len(unique_sorted_labels_in_file)} unique timepoints "
+                f"(indices 0 to {max_data_idx_available})."
+            )
+
+    loaded_data_slices = {}
+    for data_idx in data_file_indices_to_load:
+        actual_label_value_to_fetch = unique_sorted_labels_in_file[data_idx]
+        data_for_this_label = all_phate_data[all_sample_labels == actual_label_value_to_fetch]
+
+        if data_for_this_label.shape[0] < num_samples_to_use_per_timepoint:
+            raise ValueError(
+                f"Not enough samples for time label '{actual_label_value_to_fetch}' "
+                f"(corresponding to data file index {data_idx}). "
+                f"Found {data_for_this_label.shape[0]}, requested {num_samples_to_use_per_timepoint}."
+            )
+
+        # Consistently take the first N samples.
+        # Consider random sampling if appropriate for your use case.
+        loaded_data_slices[data_idx] = data_for_this_label[:num_samples_to_use_per_timepoint, :]
+
+    return loaded_data_slices
+
+def evaluate_mse_at_timepoints_modified(device, args, model, target_timepoints, growth_model=None):
+    """
+    Evaluate MSE between model predictions and real data at specific timepoints.
+    Computes average MSE over all trajectories for each timepoint.
+
+    MODIFIED: This version loads real data only for the required timepoints directly
+              from an .npz file specified in `args`. It no longer uses `args.data.get_paths()`.
+
+    Args:
+        device: torch device.
+        args: Arguments object/namespace. Expected to contain:
+                args.dataset (str): Path to the .npz data file.
+                args.int_tps (list): List of time values for integration endpoints.
+                                     e.g., [t1, t2, t3]. Model integrates from initial to t1, etc.
+                args.time_scale (float): Value used to define integration intervals
+                                        [t - time_scale, t] for each t in args.int_tps.
+                args.save (str): Directory path to save results.
+                args.data.base_density (callable): Function to compute base density for logpz.
+                args.phate_key (str, optional): Key for data in NPZ. Defaults to 'phate'.
+                args.labels_key (str, optional): Key for labels in NPZ. Defaults to 'sample_labels'.
+        model: Trained neural ODE model.
+        target_timepoints (list of int): List of timepoint INDICES to evaluate.
+                                         These indices correspond to `args.int_tps`.
+                                         E.g., if target_timepoints=[0, 2], evaluation is for
+                                         model predictions at times `args.int_tps[0]` and `args.int_tps[2]`.
+        growth_model: Growth model (ignored with warning if provided).
+
+    Returns:
+        dict: {target_timepoint_index: average_mse_value}
+              e.g., {0: mse_for_args.int_tps[0], 2: mse_for_args.int_tps[2]}
+    """
+    if hasattr(args, 'use_growth') and args.use_growth or growth_model is not None:
+        print("INFO: Ignoring growth model parameter as it's not used in this MSE evaluation.")
+
+    if not target_timepoints:
+        print("INFO: No target timepoints specified. Returning empty results.")
+        return {}
+
+    # Validate target_timepoints (these are indices for args.int_tps)
+    max_allowable_target_idx = len(args.int_tps) - 1
+    for tp_idx in target_timepoints:
+        if not (0 <= tp_idx <= max_allowable_target_idx):
+            raise ValueError(
+                f"Target timepoint index {tp_idx} is out of range. "
+                f"With args.int_tps of length {len(args.int_tps)}, "
+                f"valid indices are [0, {max_allowable_target_idx}]."
+            )
+
+    # Determine which data file indices are needed for real data comparison.
+    # Based on original logic:
+    # - Initial conditions correspond to data file index 0.
+    # - Real data for args.int_tps[tp_idx] corresponds to data file index (tp_idx + 1).
+    required_data_file_indices = {0}  # For initial conditions
+    for tp_idx in target_timepoints:
+        required_data_file_indices.add(tp_idx + 1)
+
+    # --- Data Loading Modification ---
+    if not hasattr(args, 'dataset'):
+        raise AttributeError(
+            "For modified data loading, 'args' must contain 'dataset' (str) "
+        )
+
+    phate_key = getattr(args, 'phate_key', 'phate')
+    labels_key = getattr(args, 'labels_key', 'sample_labels')
+    num_samples_per_tp = 100
+    
+    loaded_real_data_slices = _load_real_data_for_selected_indices(
+        args.dataset,
+        sorted(list(required_data_file_indices)), # Ensure uniqueness and order
+        num_samples_per_tp,
+        phate_key=phate_key,
+        labels_key=labels_key
+    )
+    # `loaded_real_data_slices` is a dict: {data_file_idx: data_array}
+    # --- End Data Loading Modification ---
+
+    initial_conditions_from_file = loaded_real_data_slices[0]
+    n_trajectories = initial_conditions_from_file.shape[0]
+
+    print(f"Evaluating MSE for {n_trajectories} trajectories (samples).")
+    print(f"Target timepoint indices (referring to args.int_tps): {target_timepoints}")
+
+    z_samples_tensor = torch.tensor(initial_conditions_from_file, dtype=torch.float32).to(device)
+
+    # Forward pass through the model to get predictions
+    with torch.no_grad():
+        integration_intervals = []
+        for t_end in args.int_tps:
+            # This interval definition is from your original code.
+            # It implies args.time_scale defines the duration or start relative to t_end.
+            t_start = t_end - args.time_scale
+            integration_intervals.append(torch.tensor([t_start, t_end], dtype=torch.float32).to(device))
+
+        if not hasattr(args, 'data') or not hasattr(args.data, 'base_density'):
+             raise AttributeError(
+                 "args.data.base_density() callable is required for logpz calculation. "
+                 "Ensure it's correctly passed in `args`."
+            )
+
+        current_logpz = args.data.base_density()(z_samples_tensor)
+        current_z = z_samples_tensor
+
+        model_predictions_over_time = [current_z.cpu().numpy()] # Store initial conditions
+
+        for interval in integration_intervals:
+            # Assuming 'reverse=True' is part of your model's generation process as in original.
+            current_z, current_logpz = model(current_z, current_logpz, integration_times=interval, reverse=True)
+            model_predictions_over_time.append(current_z.cpu().numpy())
+
+        # predictions_at_each_step[0] is the initial state.
+        # predictions_at_each_step[k] is state after k-th integration, corresponds to time args.int_tps[k-1].
+        predictions_at_each_step = np.stack(model_predictions_over_time)
+
+    # Compute MSE for each specified target timepoint index
+    mse_results = {}
+
+    print("\n" + "="*50)
+    print("MSE EVALUATION AT SPECIFIC TIMEPOINTS")
+    print("="*50 + "\n")
+
+    for tp_idx in target_timepoints: # tp_idx is an index for `args.int_tps`
+        # Predicted data at the time `args.int_tps[tp_idx]`
+        # This corresponds to predictions_at_each_step[tp_idx + 1]
+        predicted_data_at_target = predictions_at_each_step[tp_idx + 1]
+
+        # Real data for the time `args.int_tps[tp_idx]`
+        # This corresponds to data file index `tp_idx + 1`
+        real_data_file_index_for_comparison = tp_idx + 1
+        real_data_at_target = loaded_real_data_slices[real_data_file_index_for_comparison]
+
+        mean_squared_error = np.mean((predicted_data_at_target - real_data_at_target) ** 2)
+        mse_results[tp_idx] = mean_squared_error
+
+        print(f"Timepoint Index {tp_idx} (corresponds to actual time {args.int_tps[tp_idx]:.2f}): "
+              f"Average MSE = {mean_squared_error:.6f}")
+
+    print("\n" + "="*50)
+    print("• Lower MSE indicates better prediction accuracy.")
+    print("• Compare MSE across timepoints to understand temporal performance.")
+    print("="*50 + "\n")
+
+    if not os.path.exists(args.save):
+        os.makedirs(args.save, exist_ok=True)
+        print(f"Created save directory: {args.save}")
+
+    results_save_path = os.path.join(args.save, "mse_at_selected_timepoints.npy")
+    try:
+        np.save(results_save_path, mse_results)
+        print(f"MSE results dictionary saved to: {results_save_path}")
+    except Exception as e:
+        print(f"Error saving results to {results_save_path}: {e}")
+
+
+    return mse_results
 
 def evaluate_kantorovich_v2(device, args, model, growth_model=None):
     """Eval the model via kantorovich distance on leftout timepoint
