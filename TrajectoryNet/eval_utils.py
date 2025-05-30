@@ -274,7 +274,7 @@ def _load_real_data_for_selected_indices(dataset,
 
     return loaded_data_slices
 
-def evaluate_mse_at_timepoints_modified(device, args, model, target_timepoints, growth_model=None):
+def evaluate_mse_at_timepoint(device, args, model, target_timepoints, growth_model=None):
     """
     Evaluate MSE between model predictions and real data at specific timepoints.
     Computes average MSE over all trajectories for each timepoint.
@@ -339,7 +339,7 @@ def evaluate_mse_at_timepoints_modified(device, args, model, target_timepoints, 
     phate_key = getattr(args, 'phate_key', 'phate')
     labels_key = getattr(args, 'labels_key', 'sample_labels')
     num_samples_per_tp = 100
-    
+
     loaded_real_data_slices = _load_real_data_for_selected_indices(
         args.dataset,
         sorted(list(required_data_file_indices)), # Ensure uniqueness and order
