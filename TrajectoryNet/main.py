@@ -649,7 +649,7 @@ def main(args):
                 getattr(args, 'eval_kantorovich', False),
                 getattr(args, 'eval_kantorovich_v2', False),
                 getattr(args, 'eval_mse', False),
-                getattr(args, 'evaluate_mse_at_timepoint', False),
+                getattr(args, 'eval_mse_at_timepoint', False),
                 getattr(args, 'eval_path_length', False),
                 getattr(args, 'generate_eval_samples', False)
             ])
