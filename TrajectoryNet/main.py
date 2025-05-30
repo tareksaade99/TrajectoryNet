@@ -28,7 +28,7 @@ from TrajectoryNet.eval_utils import (
     generate_samples,
     calculate_path_length,
     evaluate_mse,
-    evaluate_mse_at_timepoint,
+    evaluate_mse_timepoint,
     evaluate_kantorovich_v2,
     evaluate_kantorovich,
     evaluate,
@@ -439,7 +439,7 @@ def run_evaluation(device, args, model, growth_model, logger):
         except Exception as e:
             logger.error(f"MSE evaluation failed: {e}")
     
-    if getattr(args, 'eval_mse_at_timepoint', False):
+    if getattr(args, 'eval_mse_timepoint', False):
         if args.leaveout_timepoint < 0:
             logger.warning(
                 f"Skipping MSE at timepoint: 'leaveout_timepoint' ({args.leaveout_timepoint}) is invalid."
@@ -463,10 +463,10 @@ def run_evaluation(device, args, model, growth_model, logger):
                 f"(corresponds to time: {actual_time_str}) using selective data loading..."
             )
             try:
-                # Call the (modified) evaluate_mse_at_timepoint function
-                # It's assumed that the function definition for evaluate_mse_at_timepoint
+                # Call the (modified) evaluate_mse_timepoint function
+                # It's assumed that the function definition for evaluate_mse_timepoint
                 # has been updated to the new one that performs selective loading.
-                mse_result_dict = evaluate_mse_at_timepoint( 
+                mse_result_dict = evaluate_mse_timepoint( 
                     device=device,
                     args=args,
                     model=model,
@@ -649,7 +649,7 @@ def main(args):
                 getattr(args, 'eval_kantorovich', False),
                 getattr(args, 'eval_kantorovich_v2', False),
                 getattr(args, 'eval_mse', False),
-                getattr(args, 'eval_mse_at_timepoint', False),
+                getattr(args, 'eval_mse_timepoint', False),
                 getattr(args, 'eval_path_length', False),
                 getattr(args, 'generate_eval_samples', False)
             ])

@@ -274,7 +274,7 @@ def _load_real_data_for_selected_indices(dataset,
 
     return loaded_data_slices
 
-def evaluate_mse_at_timepoint(device, args, model, target_timepoints, growth_model=None):
+def evaluate_mse_timepoint(device, args, model, target_timepoints, growth_model=None):
     """
     Evaluate MSE between model predictions and real data at specific timepoints.
     Computes average MSE over all trajectories for each timepoint.
