@@ -126,7 +126,7 @@ def earth_mover_distance(samples1, samples2):
     emd_y = wasserstein_distance(samples1[:, 1], samples2[:, 1])
     return (emd_x + emd_y) / 2
 
-def generate_samples(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
+def generate_and_visualize(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
     """
     Generate samples, compute EMD, and visualize with vector fields
     
@@ -140,8 +140,11 @@ def generate_samples(device, args, model, growth_model, n=10000, timepoint=None,
         grid_size: resolution for vector field grid
     """
     # Create output directory
-    savedir = args.save
+    savedir = args.save   
     os.makedirs(savedir, exist_ok=True)
+    
+    # Set model to evaluation mode
+    model.eval()
     
     # 1. Generate samples from the model
     z_samples = args.data.base_sample()(n, *args.data.get_shape()).to(device)
@@ -179,15 +182,19 @@ def generate_samples(device, args, model, growth_model, n=10000, timepoint=None,
     
     # 5. Compute vector field at final timepoint
     with torch.no_grad():
-        # Get ODE function from model (handles different model architectures)
+        # Create time tensor (critical fix)
+        t_tensor = torch.tensor([timepoint], device=device, dtype=torch.float32)
+        
+        # Get ODE function from model
         if hasattr(model, 'odefunc'):
             odefunc = model.odefunc
         elif hasattr(model, 'chain') and hasattr(model.chain[0], 'odefunc'):
-            odefunc = model.chain[-1].odefunc  # Use last layer in SequentialFlow
+            odefunc = model.chain[-1].odefunc
         else:
             raise AttributeError("Model missing odefunc attribute")
         
-        dydt = odefunc(timepoint, (grid_points, logps))[0]
+        # Compute vector field
+        dydt = odefunc(t_tensor, (grid_points, logps))[0]
         dydt = -dydt.cpu().numpy()  # Reverse for forward transformation
     
     # Reshape vector field results
