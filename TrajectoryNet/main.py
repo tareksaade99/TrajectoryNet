@@ -547,7 +547,7 @@ def run_visualization(device, args, model, logger):
         logger.info("Plotting trajectory outputs...")
         try:
             if args.data.data.shape[1] == 2:
-                plot_output(device, args, model, args.save)
+                plot_output(device, args, model, logger, args.save)
                 logger.info("Trajectory plots generated successfully")
             else:
                 logger.warning("Skipping trajectory plots - data dimension > 2")

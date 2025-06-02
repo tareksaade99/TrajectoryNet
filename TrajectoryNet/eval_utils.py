@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial.distance import cdist
 import ot as pot
 import csv
-
+from scipy.stats import wasserstein_distance
 
 # Import visualization utilities
 from TrajectoryNet.lib.viz_scrna import (
@@ -23,19 +23,9 @@ matplotlib.use('Agg')
 
 # ======================== Core Evaluation Metrics ========================
 
+"""""
 def generate_samples(device, args, model, growth_model, n=10000, timepoint=None):
-    """
-    Generate samples from a trained neural ODE model and evaluate quality.
-    Computes all available EMD measures for comprehensive evaluation.
-    
-    Args:
-        device: torch device
-        args: arguments containing data and model configuration
-        model: trained neural ODE model
-        growth_model: growth model (unused in current implementation)
-        n: number of samples to generate
-        timepoint: specific timepoint to evaluate
-    """
+
     
     z_samples = args.data.base_sample()(n, *args.data.get_shape()).to(device)
     
@@ -128,6 +118,119 @@ def generate_samples(device, args, model, growth_model, n=10000, timepoint=None)
         raise NotImplementedError(
             "generating samples with growth model is not yet implemented"
         )
+"""
+
+def earth_mover_distance(samples1, samples2):
+    """Compute Earth Mover's Distance between two sets of 2D samples"""
+    emd_x = wasserstein_distance(samples1[:, 0], samples2[:, 0])
+    emd_y = wasserstein_distance(samples1[:, 1], samples2[:, 1])
+    return (emd_x + emd_y) / 2
+
+def generate_samples(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
+    """
+    Generate samples, compute EMD, and visualize with vector fields
+    
+    Args:
+        device: torch device
+        args: configuration arguments
+        model: trained neural ODE model
+        growth_model: growth model (unused)
+        n: number of samples to generate
+        timepoint: evaluation timepoint
+        grid_size: resolution for vector field grid
+    """
+    # Create output directory
+    savedir = args.save
+    os.makedirs(savedir, exist_ok=True)
+    
+    # 1. Generate samples from the model
+    z_samples = args.data.base_sample()(n, *args.data.get_shape()).to(device)
+    
+    with torch.no_grad():
+        int_list = [
+            torch.tensor([it - args.time_scale, it]).float().to(device)
+            for it in args.int_tps[: timepoint + 1]
+        ]
+
+        logpz = args.data.base_density()(z_samples)
+        z = z_samples
+        for it in int_list:
+            z, logpz = model(z, logpz, integration_times=it, reverse=True)
+        generated = z.cpu().numpy()
+        
+        # Save generated samples
+        np.save(os.path.join(savedir, f"samples_{timepoint:.2f}.npy"), generated)
+    
+    # 2. Get real data samples
+    original_data = args.data.get_data()[args.data.get_times() == timepoint]
+    real_samples = original_data[np.random.choice(original_data.shape[0], n, replace=False)]
+    
+    # 3. Compute Earth Mover's Distance
+    emd = earth_mover_distance(generated, original_data)
+    print(f"EMD (Generated vs Original) at t={timepoint}: {emd:.6f}")
+    
+    # 4. Create vector field grid
+    K = grid_size * 1j
+    y, x = np.mgrid[-4:4:K, -4:4:K]
+    grid_points = torch.tensor(np.stack([x.ravel(), y.ravel()], axis=1), 
+                              dtype=torch.float32, 
+                              device=device)
+    logps = torch.zeros(grid_points.shape[0], 1, device=device, dtype=torch.float32)
+    
+    # 5. Compute vector field at final timepoint
+    with torch.no_grad():
+        # Get ODE function from model (handles different model architectures)
+        if hasattr(model, 'odefunc'):
+            odefunc = model.odefunc
+        elif hasattr(model, 'chain') and hasattr(model.chain[0], 'odefunc'):
+            odefunc = model.chain[-1].odefunc  # Use last layer in SequentialFlow
+        else:
+            raise AttributeError("Model missing odefunc attribute")
+        
+        dydt = odefunc(timepoint, (grid_points, logps))[0]
+        dydt = -dydt.cpu().numpy()  # Reverse for forward transformation
+    
+    # Reshape vector field results
+    dydt = dydt.reshape(grid_size, grid_size, 2)
+    magnitude = np.hypot(dydt[..., 0], dydt[..., 1])
+    
+    # 6. Create visualization
+    plt.figure(figsize=(16, 8))
+    
+    # Subplot 1: Generated samples vs Real data
+    plt.subplot(1, 2, 1, aspect='equal')
+    plt.scatter(generated[:, 0], generated[:, 1], s=2, alpha=0.7, 
+                label='Generated', color='blue')
+    plt.scatter(real_samples[:, 0], real_samples[:, 1], s=2, alpha=0.7, 
+                label='Real Data', color='red')
+    plt.xlim(-4, 4)
+    plt.ylim(-4, 4)
+    plt.title(f"Generated vs Real (t={timepoint})\nEMD: {emd:.4f}")
+    plt.legend(markerscale=5)
+    plt.grid(alpha=0.3)
+
+    # Subplot 2: Generated samples with Vector Field
+    plt.subplot(1, 2, 2, aspect='equal')
+    plt.scatter(generated[:, 0], generated[:, 1], s=2, alpha=0.5, 
+                color='purple', label='Generated')
+    
+    # Plot vector field
+    plt.quiver(
+        x, y, dydt[..., 0], dydt[..., 1], magnitude,
+        cmap='viridis', scale=30, width=0.004, pivot='mid',
+        angles='xy', scale_units='xy'
+    )
+    plt.colorbar(label='Vector Magnitude')
+    plt.xlim(-4, 4)
+    plt.ylim(-4, 4)
+    plt.title("Generated Samples with Vector Field")
+    plt.grid(alpha=0.3)
+    
+    # Save and close
+    plt.tight_layout()
+    plt.savefig(os.path.join(savedir, f"combined_{timepoint}.png"), dpi=150)
+    plt.close()
+    
 
 
 def calculate_path_length(device, args, model, data, end_time, n_pts=10000):
