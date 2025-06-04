@@ -124,7 +124,7 @@ def earth_mover_distance(samples1, samples2):
     emd_y = wasserstein_distance(samples1[:, 1], samples2[:, 1])
     return (emd_x + emd_y) / 2
 
-def evaluate_and_visualize(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
+def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
     """
     Generate samples, compute EMD and MSE, and visualize with vector fields
     
