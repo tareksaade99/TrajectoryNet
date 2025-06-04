@@ -23,7 +23,6 @@ matplotlib.use('Agg')
 
 # ======================== Core Evaluation Metrics ========================
 
-"""""
 def generate_samples(device, args, model, growth_model, n=10000, timepoint=None):
 
     
@@ -118,7 +117,6 @@ def generate_samples(device, args, model, growth_model, n=10000, timepoint=None)
         raise NotImplementedError(
             "generating samples with growth model is not yet implemented"
         )
-"""
 
 def earth_mover_distance(samples1, samples2):
     """Compute Earth Mover's Distance between two sets of 2D samples"""
@@ -126,9 +124,9 @@ def earth_mover_distance(samples1, samples2):
     emd_y = wasserstein_distance(samples1[:, 1], samples2[:, 1])
     return (emd_x + emd_y) / 2
 
-def generate_and_visualize(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
+def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
     """
-    Generate samples, compute EMD, and visualize with vector fields
+    Generate samples, compute EMD and MSE, and visualize with vector fields
     
     Args:
         device: torch device
@@ -170,9 +168,32 @@ def generate_and_visualize(device, args, model, growth_model, n=10000, timepoint
     
     # 3. Compute Earth Mover's Distance
     emd = earth_mover_distance(generated, original_data)
-    print(f"EMD (Generated vs Original) at t={timepoint}: {emd:.6f}")
     
-    # 4. Create vector field grid
+    # 4. Compute Mean Squared Error
+    # For MSE, we need to match the number of samples
+    min_samples = min(generated.shape[0], real_samples.shape[0])
+    generated_subset = generated[:min_samples]
+    real_subset = real_samples[:min_samples]
+    mse = np.mean((generated_subset - real_subset) ** 2)
+    
+    # 5. Save results to CSV file
+    results_file = os.path.join(savedir, "evaluation_results.csv")
+    
+    # Check if file exists to determine if we need headers
+    file_exists = os.path.exists(results_file)
+    
+    # Append results to CSV
+    with open(results_file, 'a', newline='') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            # Write header if file doesn't exist
+            writer.writerow(['timepoint', 'emd', 'mse'])
+        writer.writerow([timepoint, emd, mse])
+    
+    # 6. Print current metrics
+    print(f"t={timepoint:.2f} | EMD: {emd:.6f} | MSE: {mse:.6f}")
+    
+    # 7. Create vector field grid
     K = grid_size * 1j
     y, x = np.mgrid[-4:4:K, -4:4:K]
     grid_points = torch.tensor(np.stack([x.ravel(), y.ravel()], axis=1), 
@@ -180,7 +201,7 @@ def generate_and_visualize(device, args, model, growth_model, n=10000, timepoint
                               device=device)
     logps = torch.zeros(grid_points.shape[0], 1, device=device, dtype=torch.float32)
     
-    # 5. Compute vector field at final timepoint
+    # 8. Compute vector field at final timepoint
     with torch.no_grad():
         # Create time tensor (critical fix)
         t_tensor = torch.tensor([timepoint], device=device, dtype=torch.float32)
@@ -201,45 +222,101 @@ def generate_and_visualize(device, args, model, growth_model, n=10000, timepoint
     dydt = dydt.reshape(grid_size, grid_size, 2)
     magnitude = np.hypot(dydt[..., 0], dydt[..., 1])
     
-    # 6. Create visualization
-    plt.figure(figsize=(16, 8))
+    # 9. Create single combined visualization
+    plt.figure(figsize=(12, 10))
     
-    # Subplot 1: Generated samples vs Real data
-    plt.subplot(1, 2, 1, aspect='equal')
-    plt.scatter(generated[:, 0], generated[:, 1], s=2, alpha=0.7, 
-                label='Generated', color='blue')
-    plt.scatter(real_samples[:, 0], real_samples[:, 1], s=2, alpha=0.7, 
-                label='Real Data', color='red')
-    plt.xlim(-4, 4)
-    plt.ylim(-4, 4)
-    plt.title(f"Generated vs Real (t={timepoint})\nEMD: {emd:.4f}")
-    plt.legend(markerscale=5)
-    plt.grid(alpha=0.3)
-
-    # Subplot 2: Generated samples with Vector Field
-    plt.subplot(1, 2, 2, aspect='equal')
-    plt.scatter(generated[:, 0], generated[:, 1], s=2, alpha=0.5, 
-                color='purple', label='Generated')
+    # Plot generated samples
+    plt.scatter(generated[:, 0], generated[:, 1], s=3, alpha=0.6, 
+                color='blue', label='Generated', zorder=2)
+    
+    # Plot real data samples
+    plt.scatter(real_samples[:, 0], real_samples[:, 1], s=3, alpha=0.6, 
+                color='red', label='Real Data', zorder=2)
     
     # Plot vector field
-    plt.quiver(
+    quiver = plt.quiver(
         x, y, dydt[..., 0], dydt[..., 1], magnitude,
-        cmap='viridis', scale=30, width=0.004, pivot='mid',
-        angles='xy', scale_units='xy'
+        cmap='viridis', scale=30, width=0.003, pivot='mid',
+        angles='xy', scale_units='xy', alpha=0.7, zorder=1
     )
-    plt.colorbar(label='Vector Magnitude')
+    
+    # Add colorbar for vector field magnitude
+    cbar = plt.colorbar(quiver, shrink=0.8)
+    cbar.set_label('Vector Field Magnitude', rotation=270, labelpad=15)
+    
+    # Formatting
     plt.xlim(-4, 4)
     plt.ylim(-4, 4)
-    plt.title("Generated Samples with Vector Field")
+    plt.title(f"Model Evaluation at t={timepoint}\nEMD: {emd:.4f} | MSE: {mse:.4f}", 
+              fontsize=14, pad=20)
+    plt.xlabel('X', fontsize=12)
+    plt.ylabel('Y', fontsize=12)
+    plt.legend(markerscale=3, loc='upper right')
     plt.grid(alpha=0.3)
+    plt.gca().set_aspect('equal', adjustable='box')
     
+    #display MSE and EMD in a table for comparasion
+    display_results_table(os.path.join(args.save, "evaluation_results.csv"))
+
     # Save and close
     plt.tight_layout()
-    plt.savefig(os.path.join(savedir, f"combined_{timepoint}.png"), dpi=150)
+    plt.savefig(os.path.join(savedir, f"evaluation_{timepoint:.2f}.png"), 
+                dpi=150, bbox_inches='tight')
     plt.close()
+
+#helper function to display csv data 
+def display_results_table(results_file):
+    """
+    Read CSV file and display formatted table of results
     
-
-
+    Args:
+        results_file: path to CSV file containing results
+    """
+    if not os.path.exists(results_file):
+        return
+    
+    # Read CSV file
+    with open(results_file, 'r') as f:
+        reader = csv.reader(f)
+        header = next(reader)  # Skip header
+        rows = list(reader)
+    
+    if not rows:
+        return
+    
+    # Extract data
+    timepoints = [float(row[0]) for row in rows]
+    emd_values = [float(row[1]) for row in rows]
+    mse_values = [float(row[2]) for row in rows]
+    
+    # Create header
+    print("\n" + "="*80)
+    print("EVALUATION RESULTS ACROSS TIMEPOINTS")
+    print("="*80)
+    
+    # Print timepoint row
+    print(f"{'Timepoint':<12}", end="")
+    for tp in timepoints:
+        print(f"{tp:<12.2f}", end="")
+    print()
+    
+    # Print separator
+    print("-"*80)
+    
+    # Print EMD row
+    print(f"{'EMD':<12}", end="")
+    for emd in emd_values:
+        print(f"{emd:<12.6f}", end="")
+    print()
+    
+    # Print MSE row
+    print(f"{'MSE':<12}", end="")
+    for mse in mse_values:
+        print(f"{mse:<12.6f}", end="")
+    print()
+    
+    print("="*80)    
+    
 def calculate_path_length(device, args, model, data, end_time, n_pts=10000):
     """Calculates the total length of the path from time 0 to timepoint"""
     # z_samples = torch.tensor(data.get_data()).type(torch.float32).to(device)
@@ -757,192 +834,8 @@ def evaluate(device, args, model, growth_model=None):
     np.save(os.path.join(args.save, "nll.npy"), losses)
     return losses
 
-# ======================== Comprehensive Evaluation ========================
-
-def comprehensive_evaluation(device, args, model, growth_model, logger, save_dir):
-    """
-    Run all evaluation metrics after training
-    """
-    logger.info("Starting comprehensive evaluation...")
-    model.eval()
-    eval_results = {}
-    
-    # 1. Negative Log-Likelihood Evaluation
-    logger.info("Computing negative log-likelihood...")
-    try:
-        nll_losses = evaluate(device, args, model, growth_model)
-        eval_results['nll'] = nll_losses
-        logger.info(f"NLL losses: {nll_losses}")
-    except Exception as e:
-        logger.error(f"NLL evaluation failed: {e}")
-    
-    # 2. Kantorovich Distance Evaluation
-    logger.info("Computing Kantorovich distances...")
-    try:
-        emds = evaluate_kantorovich(device, args, model, growth_model, n=5000)
-        eval_results['kantorovich'] = emds
-        logger.info(f"Kantorovich distances: {emds}")
-    except Exception as e:
-        logger.error(f"Kantorovich evaluation failed: {e}")
-    
-    # 3. Kantorovich Distance V2 (if leaveout timepoint specified)
-    if args.leaveout_timepoint >= 0 and args.leaveout_timepoint < len(args.timepoints) - 1:
-        logger.info("Computing Kantorovich distances V2...")
-        try:
-            emds_v2 = evaluate_kantorovich_v2(device, args, model, growth_model)
-            eval_results['kantorovich_v2'] = emds_v2
-            logger.info(f"Kantorovich V2 distances: {emds_v2}")
-        except Exception as e:
-            logger.error(f"Kantorovich V2 evaluation failed: {e}")
-    
-    # 4. MSE Evaluation (if path data available)
-    if hasattr(args.data, 'get_paths'):
-        logger.info("Computing MSE on paths...")
-        try:
-            mses = evaluate_mse(device, args, model, growth_model)
-            eval_results['mse'] = mses
-            logger.info(f"Path MSE: {np.mean(mses)}")
-        except Exception as e:
-            logger.error(f"MSE evaluation failed: {e}")
-    
-    # 5. Path Length Analysis
-    logger.info("Computing path lengths...")
-    try:
-        path_lengths = []
-        for tp_idx, tp in enumerate(args.timepoints):
-            if tp > 0:  # Skip base timepoint
-                path_length = calculate_path_length(
-                    device, args, model, args.data, args.int_tps[tp_idx]
-                )
-                path_lengths.append(path_length)
-                logger.info(f"Path length to t={tp}: {path_length:.4f}")
-        eval_results['path_lengths'] = path_lengths
-    except Exception as e:
-        logger.error(f"Path length calculation failed: {e}")
-    
-    # 6. Generate samples for each timepoint
-    logger.info("Generating samples for visualization...")
-    try:
-        for tp_idx, tp in enumerate(args.timepoints):
-            generate_samples(device, args, model, growth_model, n=2000, timepoint=tp_idx)
-            logger.info(f"Generated samples for t={tp}")
-    except Exception as e:
-        logger.error(f"Sample generation failed: {e}")
-    
-    # Save evaluation summary
-    eval_summary_path = os.path.join(save_dir, "evaluation_summary.txt")
-    with open(eval_summary_path, "w") as f:
-        f.write("Comprehensive Evaluation Results\n")
-        f.write("=" * 40 + "\n\n")
-        
-        for metric_name, values in eval_results.items():
-            f.write(f"{metric_name.upper()}:\n")
-            if isinstance(values, (list, np.ndarray)):
-                f.write(f"  Values: {values}\n")
-                if len(values) > 0:
-                    f.write(f"  Mean: {np.mean(values):.6f}\n")
-                    f.write(f"  Std: {np.std(values):.6f}\n")
-            else:
-                f.write(f"  Value: {values}\n")
-            f.write("\n")
-    
-    logger.info(f"Evaluation summary saved to {eval_summary_path}")
-    return eval_results
 
 # ======================== Visualization Functions ========================
-
-def plot_vector_fields_with_samples(device, args, model, logger, save_dir):
-    """
-    Plot vector fields with forward-integrated samples from base distribution
-    """
-    if args.data.get_shape()[0] > 2:
-        logger.warning("Skipping vector field visualization as data dimension > 2")
-        return
-    
-    logger.info("Plotting vector fields with integrated samples...")
-    n_samples = 500
-    os.makedirs(os.path.join(save_dir, "vector_fields"), exist_ok=True)
-    
-    # Create base samples
-    base_samples = args.data.base_sample()(n_samples, *args.data.get_shape())
-    base_samples = base_samples.numpy()
-    
-    with torch.no_grad():
-        # For each timepoint, integrate samples forward and plot vector field
-        for i, (tp, itp) in enumerate(zip(args.timepoints, args.int_tps)):
-            plt.figure(figsize=(12, 8))
-            
-            # Get data at this timepoint
-            data_at_tp = args.data.get_data()[args.data.get_times() == tp]
-            
-            # Integrate base samples forward to this timepoint
-            z_samples = torch.from_numpy(base_samples).type(torch.float32).to(device)
-            
-            # Forward integration from base to timepoint
-            int_list = []
-            for j in range(i + 1):
-                if j == 0:
-                    prev_time = 0.0
-                else:
-                    prev_time = args.int_tps[j - 1]
-                int_times = torch.tensor([prev_time, args.int_tps[j]]).type(torch.float32).to(device)
-                int_list.append(int_times)
-            
-            # Apply forward transformations
-            z = z_samples
-            for int_times in int_list:
-                z = model(z, integration_times=int_times, reverse=True)
-            
-            integrated_samples = z.cpu().numpy()
-            
-            # Create grid for vector field
-            x_min = min(data_at_tp[:, 0].min(), integrated_samples[:, 0].min()) - 1
-            x_max = max(data_at_tp[:, 0].max(), integrated_samples[:, 0].max()) + 1
-            y_min = min(data_at_tp[:, 1].min(), integrated_samples[:, 1].min()) - 1
-            y_max = max(data_at_tp[:, 1].max(), integrated_samples[:, 1].max()) + 1
-            
-            x_grid = np.linspace(x_min, x_max, 20)
-            y_grid = np.linspace(y_min, y_max, 20)
-            X, Y = np.meshgrid(x_grid, y_grid)
-            grid_points = np.stack([X.ravel(), Y.ravel()], axis=1)
-            
-            # Compute vector field at grid points
-            grid_tensor = torch.from_numpy(grid_points).type(torch.float32).to(device)
-            time_tensor = torch.tensor(itp).type(torch.float32).to(device)
-            
-            try:
-                # Get vector field from ODE function
-                vectors = -model.chain[0].odefunc.odefunc.diffeq(time_tensor, grid_tensor)
-                vectors = vectors.cpu().numpy()
-                
-                U = vectors[:, 0].reshape(X.shape)
-                V = vectors[:, 1].reshape(Y.shape)
-                
-                # Plot vector field
-                plt.quiver(X, Y, U, V, alpha=0.6, color='gray', scale=20, width=0.003)
-            except Exception as e:
-                logger.warning(f"Could not plot vector field: {e}")
-            
-            # Plot data points
-            plt.scatter(data_at_tp[:, 0], data_at_tp[:, 1], 
-                       c='red', s=20, alpha=0.7, label=f'Data t={tp}')
-            
-            # Plot integrated samples
-            plt.scatter(integrated_samples[:, 0], integrated_samples[:, 1], 
-                       c='blue', s=15, alpha=0.5, label='Forward samples')
-            
-            plt.title(f'Vector Field and Samples at t={tp}')
-            plt.xlabel('Dimension 1')
-            plt.ylabel('Dimension 2')
-            plt.legend()
-            plt.grid(True, alpha=0.3)
-            
-            # Save figure
-            fig_filename = os.path.join(save_dir, "vector_fields", f"vf_t{tp:02d}.png")
-            plt.savefig(fig_filename, dpi=150, bbox_inches='tight')
-            plt.close()
-            
-            logger.info(f"Saved vector field plot for t={tp}")
 
 def plot_output(device, args, model, logger, save_dir):
     """Plots trajectories and densities for 2D data"""

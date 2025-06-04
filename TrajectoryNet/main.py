@@ -26,13 +26,13 @@ from TrajectoryNet.lib.viz_scrna import save_trajectory_density
 # Import evaluation utilities
 from TrajectoryNet.eval_utils import (
     generate_samples,
+    evaluate_visualize,
     calculate_path_length,
     evaluate_mse,
     evaluate_mse_timepoint,
     evaluate_kantorovich_v2,
     evaluate_kantorovich,
     evaluate,
-    plot_vector_fields_with_samples,
     plot_output,
     plot_loss_curves,
     save_evaluation_results,
@@ -520,6 +520,15 @@ def run_evaluation(device, args, model, growth_model, logger):
                 logger.info(f"Generated samples for t={tp}")
         except Exception as e:
             logger.error(f"Sample generation failed: {e}")
+
+    if getattr(args, 'eval_visualize', False):
+        logger.info("Evaluating and Visualizing...")
+        try:
+            for tp_idx, tp in enumerate(args.timepoints):
+                evaluate_visualize(device, args, model, growth_model, n=2000, timepoint=tp_idx)
+                logger.info(f"Evaluating for t={tp}")
+        except Exception as e:
+            logger.error(f"Evaluation failed: {e}")
     
     # Save and log results if any evaluations were run
     if eval_results:
@@ -534,14 +543,6 @@ def run_visualization(device, args, model, logger):
     Run visualizations based on command line arguments
     """
     logger.info("Starting visualization phase...")
-    
-    if getattr(args, 'plot_vector_fields', False):
-        logger.info("Plotting vector fields with samples...")
-        try:
-            plot_vector_fields_with_samples(device, args, model, logger, args.save)
-            logger.info("Vector field plots generated successfully")
-        except Exception as e:
-            logger.error(f"Vector field plotting failed: {e}")
     
     if getattr(args, 'plot_trajectories', False):
         logger.info("Plotting trajectory outputs...")
@@ -651,7 +652,8 @@ def main(args):
                 getattr(args, 'eval_mse', False),
                 getattr(args, 'eval_mse_timepoint', False),
                 getattr(args, 'eval_path_length', False),
-                getattr(args, 'generate_eval_samples', False)
+                getattr(args, 'generate_eval_samples', False),
+                getattr(args, 'eval_visualize', False)
             ])
             
             if eval_requested:
@@ -659,7 +661,6 @@ def main(args):
             
             # Check if any visualization is requested
             viz_requested = any([
-                getattr(args, 'plot_vector_fields', False),
                 getattr(args, 'plot_trajectories', False),
                 getattr(args, 'plot_loss', False)
             ])

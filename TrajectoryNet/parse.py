@@ -126,8 +126,7 @@ parser.add_argument('--eval_mse', action='store_true', help='Evaluate MSE on pat
 parser.add_argument('--eval_mse_timepoint', action='store_true', help='Evaluate MSE at leaveout timepoint')
 parser.add_argument('--eval_path_length', action='store_true', help='Calculate path lengths')
 parser.add_argument('--generate_eval_samples', action='store_true', help='Generate samples for evaluation')
-
+parser.add_argument('--eval_visualize', action='store_true', help='Evaluate EMD and MSE and plot vector fields with sample and real data')
 # Visualization arguments
-parser.add_argument('--plot_vector_fields', action='store_true', help='Plot vector fields with samples')
 parser.add_argument('--plot_trajectories', action='store_true', help='Plot trajectory outputs')
 parser.add_argument('--plot_loss', action='store_true', help='Plot loss curves')
