@@ -27,6 +27,7 @@ from TrajectoryNet.lib.viz_scrna import save_trajectory_density
 from TrajectoryNet.eval_utils import (
     generate_samples,
     evaluate_visualize,
+    display_results_table,
     calculate_path_length,
     evaluate_mse,
     evaluate_mse_timepoint,
@@ -526,6 +527,7 @@ def run_evaluation(device, args, model, growth_model, logger):
         try:
             for tp_idx, tp in enumerate(args.timepoints):
                 evaluate_visualize(device, args, model, growth_model, n=2000, timepoint=tp_idx)
+                display_results_table(os.path.join(args.save, "evaluation_results.csv"))
                 logger.info(f"Evaluating for t={tp}")
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")

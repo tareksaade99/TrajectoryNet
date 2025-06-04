@@ -124,7 +124,7 @@ def earth_mover_distance(samples1, samples2):
     emd_y = wasserstein_distance(samples1[:, 1], samples2[:, 1])
     return (emd_x + emd_y) / 2
 
-def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
+def evaluate_and_visualize(device, args, model, growth_model, n=10000, timepoint=None, grid_size=20):
     """
     Generate samples, compute EMD and MSE, and visualize with vector fields
     
@@ -158,9 +158,6 @@ def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=Non
         for it in int_list:
             z, logpz = model(z, logpz, integration_times=it, reverse=True)
         generated = z.cpu().numpy()
-        
-        # Save generated samples
-        np.save(os.path.join(savedir, f"samples_{timepoint:.2f}.npy"), generated)
     
     # 2. Get real data samples
     original_data = args.data.get_data()[args.data.get_times() == timepoint]
@@ -176,7 +173,7 @@ def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=Non
     real_subset = real_samples[:min_samples]
     mse = np.mean((generated_subset - real_subset) ** 2)
     
-    # 5. Save results to CSV file
+    # 6. Save results to CSV file (but don't print yet)
     results_file = os.path.join(savedir, "evaluation_results.csv")
     
     # Check if file exists to determine if we need headers
@@ -189,9 +186,6 @@ def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=Non
             # Write header if file doesn't exist
             writer.writerow(['timepoint', 'emd', 'mse'])
         writer.writerow([timepoint, emd, mse])
-    
-    # 6. Print current metrics
-    print(f"t={timepoint:.2f} | EMD: {emd:.6f} | MSE: {mse:.6f}")
     
     # 7. Create vector field grid
     K = grid_size * 1j
@@ -223,6 +217,10 @@ def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=Non
     magnitude = np.hypot(dydt[..., 0], dydt[..., 1])
     
     # 9. Create single combined visualization
+    # Create plots subdirectory
+    plots_dir = os.path.join(savedir, "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    
     plt.figure(figsize=(12, 10))
     
     # Plot generated samples
@@ -233,11 +231,11 @@ def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=Non
     plt.scatter(real_samples[:, 0], real_samples[:, 1], s=3, alpha=0.6, 
                 color='red', label='Real Data', zorder=2)
     
-    # Plot vector field
+    # Plot vector field with bigger arrows
     quiver = plt.quiver(
         x, y, dydt[..., 0], dydt[..., 1], magnitude,
-        cmap='viridis', scale=30, width=0.003, pivot='mid',
-        angles='xy', scale_units='xy', alpha=0.7, zorder=1
+        cmap='viridis', scale=15, width=0.006, pivot='mid',
+        angles='xy', scale_units='xy', alpha=0.8, zorder=1
     )
     
     # Add colorbar for vector field magnitude
@@ -255,12 +253,9 @@ def evaluate_visualize(device, args, model, growth_model, n=10000, timepoint=Non
     plt.grid(alpha=0.3)
     plt.gca().set_aspect('equal', adjustable='box')
     
-    #display MSE and EMD in a table for comparasion
-    display_results_table(os.path.join(args.save, "evaluation_results.csv"))
-
-    # Save and close
+    # Save plot in subdirectory and close
     plt.tight_layout()
-    plt.savefig(os.path.join(savedir, f"evaluation_{timepoint:.2f}.png"), 
+    plt.savefig(os.path.join(plots_dir, f"evaluation_{timepoint:.2f}.png"), 
                 dpi=150, bbox_inches='tight')
     plt.close()
 
