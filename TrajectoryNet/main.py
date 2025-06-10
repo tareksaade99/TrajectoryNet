@@ -537,7 +537,7 @@ def run_evaluation(device, args, model, growth_model, logger):
         logger.info("Generating samples for evaluation...")
         try:
             for tp_idx, tp in enumerate(args.timepoints):
-                generate_samples(device, args, model, growth_model, n=2000, timepoint=tp_idx)
+                generate_samples(device, args, model, growth_model, n=1000, timepoint=tp_idx)
                 logger.info(f"Generated samples for t={tp}")
         except Exception as e:
             logger.error(f"Sample generation failed: {e}")
