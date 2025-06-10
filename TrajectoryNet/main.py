@@ -546,7 +546,7 @@ def run_evaluation(device, args, model, growth_model, logger):
         logger.info("Evaluating and Visualizing...")
         try:
             for tp_idx, tp in enumerate(args.timepoints):
-                evaluate_visualize(device, args, model, growth_model, n=2000, timepoint=tp_idx)
+                evaluate_visualize(device, args, model, growth_model, n=1000, timepoint=tp_idx)
                 logger.info(f"Evaluating for t={tp}")
             display_results_table(os.path.join(args.save, "evaluation_results.csv"))
         except Exception as e:
