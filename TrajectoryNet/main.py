@@ -59,6 +59,26 @@ from TrajectoryNet.parse import parser
 
 matplotlib.use("Agg")
 
+def compute_center_of_mass(data, timepoints, target_time=0):
+    """Compute center of mass of data at a specific timepoint"""
+    if target_time in timepoints:
+        time_mask = data.get_times() == target_time
+        data_at_time = data.get_data()[time_mask]
+        if len(data_at_time) > 0:
+            return np.mean(data_at_time, axis=0)
+    return np.zeros(data.get_shape()[0])
+
+def create_centered_base_density(center_of_mass, device):
+    """Create a base density function centered at the center of mass"""
+    center_tensor = torch.from_numpy(center_of_mass).float().to(device)
+    
+    def base_density_fn(z):
+        d = z.shape[1]
+        centered_z = z - center_tensor.unsqueeze(0)
+        log_prob = -0.5 * torch.sum(centered_z ** 2, dim=1) - 0.5 * d * np.log(2 * np.pi)
+        return log_prob.unsqueeze(1)
+    
+    return base_density_fn
 
 def get_transforms(device, args, model, integration_times):
     """
@@ -591,7 +611,27 @@ def main(args):
 
     args.data = dataset.SCData.factory(args.dataset, args)
 
+    # NEW CODE: Compute center of mass and override base density if t=0 data exists
     args.timepoints = args.data.get_unique_times()
+    if 0 in args.timepoints:
+        center_of_mass = compute_center_of_mass(args.data, args.timepoints, target_time=0)
+        logger.info(f"Using center of mass as base distribution center: {center_of_mass}")
+        
+        # Store original and create override
+        original_base_density_method = args.data.base_density
+        centered_density_fn = create_centered_base_density(center_of_mass, device)
+        
+        # Override with explicit function
+        def new_base_density():
+            return centered_density_fn
+        
+        args.data.base_density = new_base_density
+        logger.info("Successfully overridden base_density method")
+    else:
+        logger.info("No data at t=0 found, using original base distribution")
+
+
+    #args.timepoints = args.data.get_unique_times()
     # Use maximum timepoint to establish integration_times
     # as some timepoints may be left out for validation etc.
     args.int_tps = (np.arange(max(args.timepoints) + 1) + 1.0) * args.time_scale
